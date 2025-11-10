@@ -21,6 +21,17 @@ send_command_to_stm32(arduino_number, scenario_number)
 
 send_command_to_stm32(3, 0x05)
 
+Возвращаемые данные:
+Возвращает словарь 
+
+```
+{"number_of_command": Номер выполняемой команды,
+"error_code": Код ошибки или 0x00 если ошибки нет,
+"command_status ": "OK"/"Failed", 
+"execution_time_ms": Время выполнения команды или 0 если проблема с передачей
+}
+```
+
 ---
 
 ## ⚙️ Общая схема работы
