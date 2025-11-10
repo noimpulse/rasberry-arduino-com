@@ -1,5 +1,6 @@
-#include "main.h"
+// #include "main.h"
 #include <stdint.h>
+
 
 #define RPI_ADDR 0x10
 #define STM_ADDR 0x30
@@ -10,8 +11,8 @@
 #define ERR_ACK 0x02
 #define ERR_ADDR 0x03
 
-extern I2C_HandleTypeDef hi2c1;
-extern UART_HandleTypeDef huart2;
+// extern I2C_HandleTypeDef hi2c1;
+// extern UART_HandleTypeDef huart2;
 
 uint8_t rx_buffer[2];
 
