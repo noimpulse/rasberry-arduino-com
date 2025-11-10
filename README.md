@@ -35,8 +35,10 @@ Raspberry Pi отправляет команды STM32 через **USART**, STM
 ### На Raspberry Pi:
 
 ```python
-send_command_to_stm32(arduino_number, scenario_number)
-send_command_to_stm32(3, 0x05)
+stm = STM32Controller()
+stm.send_command(3, 0x05)
+time.sleep(0.2)
+stm.close()
 ```
 
 ### Возвращаемые данные:
