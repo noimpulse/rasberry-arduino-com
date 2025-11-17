@@ -18,13 +18,11 @@ class STM32Controller:
     ERR_ACK = 0x02   # Arduino не подтвердил получение
     ERR_ADDR = 0x03  # Неверный адрес Arduino
     ERR_STM = 0x04   # Ошибка на стороне STM32
-    ERR_CMD - 0x05
+    ERR_CMD = 0x05   # Ошибка: команда не найдена
 
     def __init__(self, port='/dev/ttyS0', baudrate=115200, timeout=1,
                  file_path_to_table='./commands.csv'):
-        """
-        Инициализирует UART и загружает CSV с командами.
-        """
+
         self.commands = []
 
         # Подключение к UART
@@ -35,22 +33,22 @@ class STM32Controller:
             print(f"❌ Ошибка инициализации порта: {e}")
             self.ser = None
 
-        # Загрузка файла команд
+        # Загружаем файл команд
         self._load_csv(file_path_to_table)
 
     # -------------------------------------------------------------------------
-    def execute_command(self, cmd_name: str) -> Optional[Dict]:
+    def execute_command(self, cmd_name: str) -> Dict:
         """
-        Выполняет команду по её строковому имени.
+        Выполняет команду по имени.
         """
         found = self._find(cmd_name)
 
         if not found:
             print(f"❌ Команда '{cmd_name}' не найдена в таблице.")
-            return  {
+            return {
                 "number_of_command": 0,
-                "error_code": 0x05,
-                "command_status": "Not found",
+                "error_code": self.ERR_CMD,
+                "command_status": "Failed | Command not found",
                 "execution_time_ms": 0
             }
 
@@ -61,21 +59,19 @@ class STM32Controller:
     def _load_csv(self, filepath: str):
         """
         Загружает команды из CSV формата:
-        command_number | command_name | arduino_zone | ...
+        command_number | command_name | arduino_zone
         """
         try:
             with open(filepath, newline='', encoding='utf-8') as f:
                 reader = csv.reader(f, delimiter='|')
 
                 for row in reader:
-
-                    # Фильтруем пустые поля
                     row = [item.strip() for item in row if item.strip()]
                     if len(row) < 3:
                         continue
 
                     try:
-                        cmd_number = int(row[0], 0)  # можно hex
+                        cmd_number = int(row[0], 0)  # hex или int
                         cmd_name = row[1]
                         arduino_zone = int(row[2])
                     except ValueError:
@@ -97,10 +93,7 @@ class STM32Controller:
 
     # -------------------------------------------------------------------------
     def _find(self, command_name: str) -> Optional[Tuple[int, int]]:
-        """
-        Ищет команду по имени.
-        Возвращает (arduino_zone, command_number)
-        """
+        """Находит команду по имени."""
         for cmd in self.commands:
             if cmd["command_name"] == command_name:
                 return cmd["arduino_zone"], cmd["command_number"]
@@ -109,69 +102,78 @@ class STM32Controller:
     # -------------------------------------------------------------------------
     def _send_command(self, zone: int, cmd_num: int) -> Dict:
         """
-        Отправляет STM32 пакет: (zone, cmd_num)
-        Ожидает один байт ответа.
+        Отправляет STM32 пакет: (zone, cmd_num) и обрабатывает ответ.
         """
 
+        # UART не готов
         if not self.ser or not self.ser.is_open:
-            print("⚠ UART не инициализирован.")
+            reason = "UART not initialized"
+            print(f"⚠ {reason}")
             return {
                 "number_of_command": cmd_num,
                 "error_code": self.ERR_STM,
-                "command_status": "Failed | UART Error",
+                "command_status": f"Failed | {reason}",
                 "execution_time_ms": 0
             }
 
-        try: 
+        try:
             start_time = time.time()
 
-            # Формирование пакета
+            # Отправить пакет
             packet = struct.pack('BB', zone, cmd_num)
             self.ser.write(packet)
             print(f"📤 Отправлено: зона={zone}, команда={hex(cmd_num)}")
 
-            # Задержка для стабильности
+            # Небольшая задержка
             time.sleep(0.1)
 
-            # Ожидание ответа
+            # Ждём байт ответа
             response = self.ser.read(1)
 
             if not response:
-                print("⚠ Нет ответа от STM32")
+                reason = "No response from STM32"
+                print(f"⚠ {reason}")
                 return {
                     "number_of_command": cmd_num,
                     "error_code": self.ERR_STM,
-                    "command_status": "Failed | STM Error",
+                    "command_status": f"Failed | {reason}",
                     "execution_time_ms": 0
                 }
 
             code = response[0]
             exec_time = round((time.time() - start_time) * 1000, 2)
 
-            status = "OK" if code == self.CONFIRM else "Failed"
-
+            # Таблица сообщений
             messages = {
-                self.CONFIRM: "Команда подтверждена STM32",
-                self.ERR_TX: "Ошибка передачи на Arduino",
-                self.ERR_ACK: "Arduino не подтвердил команду",
-                self.ERR_ADDR: "Неверный адрес Arduino"
+                self.CONFIRM: "OK",
+                self.ERR_TX: "Arduino TX error",
+                self.ERR_ACK: "Arduino ACK timeout/error",
+                self.ERR_ADDR: "Invalid Arduino address",
+                self.ERR_STM: "STM internal error"
             }
 
-            print("ℹ", messages.get(code, f"Неизвестный код ответа: {hex(code)}"))
+            reason = messages.get(code, f"Unknown response code {hex(code)}")
+
+            # Лог
+            if code == self.CONFIRM:
+                print("ℹ Команда успешно подтверждена STM32")
+            else:
+                print(f"❌ Ошибка: {reason}")
 
             return {
                 "number_of_command": cmd_num,
                 "error_code": code,
-                "command_status": status,
+                "command_status": ("OK" if code == self.CONFIRM else f"Failed | {reason}"),
                 "execution_time_ms": exec_time
             }
 
         except Exception as e:
-            print(f"❌ Ошибка при передаче: {e}")
+            reason = f"Exception: {e}"
+            print(f"❌ {reason}")
             return {
                 "number_of_command": cmd_num,
                 "error_code": self.ERR_STM,
-                "command_status": "Failed | STM send error",
+                "command_status": f"Failed | {reason}",
                 "execution_time_ms": 0
             }
 
